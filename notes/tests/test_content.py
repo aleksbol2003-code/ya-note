@@ -11,10 +11,10 @@
 * проверки передачи формы на страницы создания
 и редоктирования заметки пользовательем.
 """
-from http import HTTPStatus  # type: ignore
+from http import HTTPStatus
 
 from django.contrib.auth import get_user_model  # type: ignore
-from django.test import TestCase, Client  # type: ignore
+from django.test import TestCase  # type: ignore
 from django.urls import reverse  # type: ignore
 
 from notes.models import Note
@@ -23,82 +23,142 @@ from notes.forms import NoteForm
 User = get_user_model()
 
 
-class TestNoteContent(TestCase):
-    """
-    Тестирование отображения контента на страницах приложения.
+class BaseNoteTest(TestCase):
+    """Базовый класс для тестов приложения YaNote."""
 
-    Проверяется:
-    * корректная передача заметок в контекст страниц;
-    * изоляция заметок между пользователями;
-    * передача форм на соответствующие страницы.
-    """
+    TEXT_1 = "Текст заметки."
+    TITLE_1 = "Заголовок заметки."
+    SLUG_1 = "test-note-1"
 
-    TEXT_1 = 'Текст заметки'
-    TITLE_1 = 'Заголовок заметки'
-    TEXT_2 = 'Текст другой заметки'
-    TITLE_2 = 'Заголовок другой заметки'
-    SLUG_1 = 'test-note-1'
-    SLUG_2 = 'test-note-2'
+    ADD_URL = reverse("notes:add")
+    LIST_URL = reverse("notes:list")
 
     @classmethod
     def setUpTestData(cls):
-        """Подготовка тестовых данных, создание пользователей и заметки."""
+        """Подготовка данных для тестов. Создаются пользователи и заметка."""
+        super().setUpTestData()
+
         cls.author = User.objects.create_user(
-            username='Автор',
-            password='au123'
+            username="Автор",
+            password="au123",
         )
-        cls.author_client = Client()
-        cls.author_client.force_login(cls.author)
         cls.reader = User.objects.create_user(
-            username='Читатель',
-            password='re123'
+            username="Читатель",
+            password="re123",
         )
-        cls.reader_client = Client()
-        cls.reader_client.force_login(cls.reader)
+
         cls.note_1 = Note.objects.create(
             title=cls.TITLE_1,
             text=cls.TEXT_1,
             author=cls.author,
-            slug=cls.SLUG_1
+            slug=cls.SLUG_1,
         )
-        cls.note_2 = Note.objects.create(
-            title=cls.TITLE_2,
-            text=cls.TEXT_2,
-            author=cls.reader,
-            slug=cls.SLUG_2
-        )
-        cls.add_url = reverse('notes:add', None)
-        cls.list_url = reverse('notes:list', None)
-        cls.edit_url = reverse('notes:edit', args=(cls.note_1.slug,))
 
-    def test_notes_list_for_different_users(self):
-        """Тест заметок разных пользователей, на странице списка заметок."""
-        response = self.author_client.get(self.list_url)
+    # по рекомендация ИИ исходя из логики тестирования контента ушёл от
+    # force_login, так как здесь лучше полноценная аутентификация,
+    # а не присвоение
+    @classmethod
+    def _create_logged_client(cls, user, password):
+        """Создаёт авторизированного клиента через client.login."""
+        client = cls.client_class()
+
+        success = client.login(username=user.username, password=password)
+        if not success:
+            raise RuntimeError(
+                f"Не удалось залогинить пользователя {user.username}.")
+
+        return client
+
+    @classmethod
+    def setUpClass(cls):
+        """Инициализация клиентов и динамического URL."""
+        super().setUpClass()
+
+        cls.anon_client = cls.client_class()   # Анонимный клиент
+
+        cls.author_client = cls._create_logged_client(cls.author, "au123")
+        cls.reader_client = cls._create_logged_client(cls.reader, "re123")
+
+        cls.EDIT_URL = reverse("notes:edit", args=(cls.note_1.slug,))
+
+    def assert_response_ok(self, response):
+        """Проверяет, что ответ имеет статус 200 OK."""
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        object_list = response.context['object_list']
-        self.assertIn(self.note_1, object_list)
-        self.assertNotIn(self.note_2, object_list)
 
-        response = self.reader_client.get(self.list_url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        object_list = response.context['object_list']
-        self.assertIn(self.note_2, object_list)
-        self.assertNotIn(self.note_1, object_list)
+    def assert_form_in_context(self, response, form_class=NoteForm):
+        """Проверка наличия формы в контексте и её типа."""
+        self.assertIn("form", response.context)
 
-    def test_creat_abd_edit_form(self):
-        """Тест формы на страницвх: создания и редактирования заметок."""
-        response = self.author_client.get(self.add_url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertIn('form', response.context)
+        form = response.context["form"]
 
-        form = response.context['form']
-        self.assertIsInstance(form, NoteForm)
+        self.assertIsInstance(form, form_class)
 
-        response = self.author_client.get(self.edit_url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertIn('form', response.context)
+    def assert_note_in_list(self, response, note):
+        """Проверка, что заметка есть в object_list."""
+        object_list = response.context.get("object_list")
 
-        edit_form = response.context['form']
-        self.assertEqual(edit_form.initial['title'], self.TITLE_1)
-        self.assertEqual(edit_form.initial['text'], self.TEXT_1)
-        self.assertEqual(edit_form.initial.get('slug'), self.SLUG_1)
+        self.assertIsNotNone(object_list)
+        self.assertIn(note, object_list)
+
+    def assert_note_not_in_list(self, response, note):
+        """Проверка, что заметки нет в object_list."""
+        object_list = response.context.get("object_list")
+
+        self.assertIsNotNone(object_list)
+        self.assertNotIn(note, object_list)
+
+
+class TestNoteContent(BaseNoteTest):
+    """
+    Тестирование отображения контента на страницах приложения.
+
+    Проверяется:
+      * изоляция заметок между пользователями;
+      * корректная передача заметок в контекст страниц;
+      * передача форм на соответствующие страницы.
+    """
+
+    def test_notes_list_for_author(self):
+        """Автор видит свои заметки на странице списка."""
+        response = self.author_client.get(self.LIST_URL)
+
+        self.assert_response_ok(response)
+        self.assert_note_in_list(response, self.note_1)
+
+    def test_not_notes_list_for_reader(self):
+        """Авторизированный клиент не видит чужие заметки."""
+        response = self.reader_client.get(self.LIST_URL)
+
+        self.assert_response_ok(response)
+        self.assert_note_not_in_list(response, self.note_1)
+
+    def test_create_form_is_present(self):
+        """Тест формы на странице создания заметки."""
+        response = self.author_client.get(self.ADD_URL)
+
+        self.assert_response_ok(response)
+        self.assert_form_in_context(response)
+
+    def test_edit_form_initial_data(self):
+        """Тест формы на странице редактирования заметки."""
+        response = self.author_client.get(self.EDIT_URL)
+
+        self.assert_response_ok(response)
+        self.assert_form_in_context(response)
+
+        form = response.context["form"]
+
+        self.assertEqual(form.initial["title"], self.TITLE_1)
+        self.assertEqual(form.initial["text"], self.TEXT_1)
+        self.assertEqual(form.initial.get("slug"), self.SLUG_1)
+
+    def test_single_note_appears_once_with_all_fields(self):
+        """Соответствие количества переданых заметок отображаемым."""
+        response = self.author_client.get(self.LIST_URL)
+
+        self.assert_response_ok(response)
+
+        object_list = response.context.get("object_list")
+
+        self.assertIsNotNone(object_list)
+        self.assertEqual(len(object_list), 1)
