@@ -26,12 +26,16 @@ User = get_user_model()
 class BaseNoteTest(TestCase):
     """Базовый класс для тестов приложения YaNote."""
 
-    TEXT_1 = "Текст заметки."
-    TITLE_1 = "Заголовок заметки."
-    SLUG_1 = "test-note-1"
+    TEXT = 'Текст заметки.'
+    TITLE = 'Заголовок заметки.'
+    SLUG = 'test-note-1'
+    NEW_TEXT = 'Новый текст заметки'
+    NEW_TITLE = 'Новый заголовок заметки'
+    NEW_SLUG = 'updated-note'
 
-    ADD_URL = reverse("notes:add")
-    LIST_URL = reverse("notes:list")
+    ADD_URL = reverse('notes:add')
+    LIST_URL = reverse('notes:list')
+    DONE_URL = reverse('notes:success')
 
     @classmethod
     def setUpTestData(cls):
@@ -39,19 +43,19 @@ class BaseNoteTest(TestCase):
         super().setUpTestData()
 
         cls.author = User.objects.create_user(
-            username="Автор",
-            password="au123",
+            username='Автор',
+            password='au123',
         )
         cls.reader = User.objects.create_user(
-            username="Читатель",
-            password="re123",
+            username='Читатель',
+            password='re123',
         )
 
-        cls.note_1 = Note.objects.create(
-            title=cls.TITLE_1,
-            text=cls.TEXT_1,
+        cls.note = Note.objects.create(
+            title=cls.TITLE,
+            text=cls.TEXT,
             author=cls.author,
-            slug=cls.SLUG_1,
+            slug=cls.SLUG,
         )
 
     # по рекомендация ИИ исходя из логики тестирования контента ушёл от
@@ -74,12 +78,33 @@ class BaseNoteTest(TestCase):
         """Инициализация клиентов и динамического URL."""
         super().setUpClass()
 
-        cls.anon_client = cls.client_class()   # Анонимный клиент
-
+        cls.client = cls.client_class()   # Анонимный клиент
         cls.author_client = cls._create_logged_client(cls.author, "au123")
         cls.reader_client = cls._create_logged_client(cls.reader, "re123")
 
-        cls.EDIT_URL = reverse("notes:edit", args=(cls.note_1.slug,))
+        cls.EDIT_URL = reverse("notes:edit", args=(cls.note.slug,))
+        cls.DEL_URL = reverse("notes:delete", args=(cls.note.slug,))
+
+        cls.form_data = {
+            'title': cls.TITLE,
+            'text': cls.TEXT,
+            'slug': cls.SLUG,
+        }
+        cls.form_data_without_slug = {
+            'title': cls.TITLE,
+            'text': cls.TEXT,
+        }
+
+
+class TestNoteContent(BaseNoteTest):
+    """
+    Тестирование отображения контента на страницах приложения.
+
+    Проверяется:
+      * изоляция заметок между пользователями;
+      * корректная передача заметок в контекст страниц;
+      * передача форм на соответствующие страницы.
+    """
 
     def assert_response_ok(self, response):
         """Проверяет, что ответ имеет статус 200 OK."""
@@ -107,30 +132,19 @@ class BaseNoteTest(TestCase):
         self.assertIsNotNone(object_list)
         self.assertNotIn(note, object_list)
 
-
-class TestNoteContent(BaseNoteTest):
-    """
-    Тестирование отображения контента на страницах приложения.
-
-    Проверяется:
-      * изоляция заметок между пользователями;
-      * корректная передача заметок в контекст страниц;
-      * передача форм на соответствующие страницы.
-    """
-
     def test_notes_list_for_author(self):
         """Автор видит свои заметки на странице списка."""
         response = self.author_client.get(self.LIST_URL)
 
         self.assert_response_ok(response)
-        self.assert_note_in_list(response, self.note_1)
+        self.assert_note_in_list(response, self.note)
 
     def test_not_notes_list_for_reader(self):
         """Авторизированный клиент не видит чужие заметки."""
         response = self.reader_client.get(self.LIST_URL)
 
         self.assert_response_ok(response)
-        self.assert_note_not_in_list(response, self.note_1)
+        self.assert_note_not_in_list(response, self.note)
 
     def test_create_form_is_present(self):
         """Тест формы на странице создания заметки."""
@@ -144,13 +158,13 @@ class TestNoteContent(BaseNoteTest):
         response = self.author_client.get(self.EDIT_URL)
 
         self.assert_response_ok(response)
-        self.assert_form_in_context(response)
+        self.assert_form_in_context(response, form_class=NoteForm)
 
         form = response.context["form"]
 
-        self.assertEqual(form.initial["title"], self.TITLE_1)
-        self.assertEqual(form.initial["text"], self.TEXT_1)
-        self.assertEqual(form.initial.get("slug"), self.SLUG_1)
+        self.assertEqual(form.initial["title"], self.TITLE)
+        self.assertEqual(form.initial["text"], self.TEXT)
+        self.assertEqual(form.initial.get("slug"), self.SLUG)
 
     def test_single_note_appears_once_with_all_fields(self):
         """Соответствие количества переданых заметок отображаемым."""

@@ -15,34 +15,15 @@
 from http import HTTPStatus  # type: ignore
 
 from django.contrib.auth import get_user_model  # type: ignore
-from django.test import TestCase  # type: ignore
 from django.urls import reverse  # type: ignore
 
-from notes.models import Note
+from notes.tests.test_content import BaseNoteTest
 
 User = get_user_model()
 
 
-class TestRoutes(TestCase):
+class TestRoutes(BaseNoteTest):
     """Тестированию маршрутов проекта."""
-
-    @classmethod
-    def setUpTestData(cls):
-        """Создаем двух пользователей( автор и читатель) и запись."""
-        cls.author = User.objects.create_user(
-            username='Автор',
-            password='au123'
-        )
-        cls.reader = User.objects.create_user(
-            username='Читатель',
-            password='re123'
-        )
-        cls.note = Note.objects.create(
-            author=cls.author,
-            title='Заголовок',
-            text='Текст',
-            slug='note-slug'
-        )
 
     def test_main_page_anonymous_access(self):
         """Главная страница доступна анонимному пользователю."""
