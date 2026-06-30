@@ -94,6 +94,11 @@ class BaseNoteTest(TestCase):
             'title': cls.TITLE,
             'text': cls.TEXT,
         }
+        cls.new_data = {
+            'title': cls.NEW_TITLE,
+            'text': cls.NEW_TEXT,
+            'slug': cls.NEW_SLUG,
+        }
 
 
 class TestNoteContent(BaseNoteTest):
